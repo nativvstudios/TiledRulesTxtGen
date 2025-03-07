@@ -126,6 +126,19 @@ def collect_directories():
     if not root_dir:
         print(f"\n{Colors.RED}No valid main folder provided. Program cannot continue.{Colors.END}")
         return None, []
+    
+    # Check for existing rules.txt file early
+    rules_file_path = os.path.join(root_dir, "rules.txt")
+    if os.path.isfile(rules_file_path):
+        print(f"\n{Colors.YELLOW}⚠️  Notice: A rules.txt file already exists in {root_dir}{Colors.END}")
+        try:
+            with open(rules_file_path, "r", encoding="utf-8") as existing_file:
+                existing_rules = [line.strip() for line in existing_file if line.strip()]
+            print(f"{Colors.CYAN}The existing file contains {len(existing_rules)} rule entries.{Colors.END}")
+            print(f"{Colors.CYAN}You'll have options to add to or replace this file after scanning for rule files.{Colors.END}\n")
+        except Exception as e:
+            print(f"{Colors.RED}Unable to read the existing rules.txt file: {str(e)}{Colors.END}")
+            print(f"{Colors.CYAN}You'll have options to handle this file after scanning for rule files.{Colors.END}\n")
         
     # Get number of rule directories
     while True:
@@ -234,10 +247,80 @@ def find_tmx_files(root_dir, directories):
     return tmx_files
 
 
-def write_rules_txt(tmx_files):
+def write_rules_txt(tmx_files, root_dir):
     """Create the rules.txt file with all the .tmx files."""
-    print(f"\n{Colors.CYAN}Creating rules.txt file...{Colors.END}")
+    # Explicitly set the rules file path to be in the root_dir (Tiled project folder)
+    rules_file_path = os.path.join(root_dir, "rules.txt")
+    existing_rules = []
+    
+    # Check if rules.txt already exists in the main folder
+    if os.path.isfile(rules_file_path):
+        print(f"\n{Colors.YELLOW}⚠️  A rules.txt file already exists in {root_dir}{Colors.END}")
+        
+        # Read existing rules
+        try:
+            with open(rules_file_path, "r", encoding="utf-8") as existing_file:
+                existing_rules = [line.strip() for line in existing_file if line.strip()]
+                
+            print(f"{Colors.CYAN}The existing file contains {len(existing_rules)} rule entries.{Colors.END}")
+            
+            # Ask user what to do
+            choice = input(f"{Colors.YELLOW}Would you like to: {Colors.END}\n"
+                          f"{Colors.GREEN}1){Colors.END} Add new rules to the existing file\n"
+                          f"{Colors.GREEN}2){Colors.END} Create a new rules.txt file (overwrite)\n"
+                          f"{Colors.GREEN}3){Colors.END} Cancel operation\n"
+                          f"{Colors.GREEN}>{Colors.END} ").strip()
+            
+            check_for_exit(choice)
+            
+            if choice == "3":
+                print(f"\n{Colors.YELLOW}Operation cancelled. No changes were made to the rules.txt file.{Colors.END}")
+                return
+            
+            # Option to backup the existing file
+            if choice == "2":
+                backup = input(f"{Colors.YELLOW}Would you like to backup the existing rules.txt file? (Y/n): {Colors.END}").strip().lower()
+                check_for_exit(backup)
+                
+                if backup != "n":
+                    backup_filename = f"rules_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+                    backup_path = os.path.join(root_dir, backup_filename)
+                    try:
+                        with open(rules_file_path, "r", encoding="utf-8") as src, open(backup_path, "w", encoding="utf-8") as dst:
+                            dst.write(src.read())
+                        print(f"{Colors.GREEN}✓ Backup created: {backup_filename}{Colors.END}")
+                    except Exception as e:
+                        print(f"{Colors.RED}Error creating backup: {str(e)}{Colors.END}")
+                        return
+        
+        except Exception as e:
+            print(f"{Colors.RED}Error reading existing rules.txt: {str(e)}{Colors.END}")
+            choice = input(f"{Colors.YELLOW}Would you like to create a new rules.txt file? (Y/n): {Colors.END}").strip().lower()
+            check_for_exit(choice)
+            if choice == "n":
+                return
+            choice = "2"  # Default to overwrite if couldn't read the existing file
+    else:
+        choice = "2"  # No existing file, so create a new one
+    
+    print(f"\n{Colors.CYAN}{'Updating' if choice == '1' else 'Creating'} rules.txt file...{Colors.END}")
     time.sleep(0.5)  # Slight delay for effect
+    
+    # Combine existing rules with new ones if adding to existing file
+    if choice == "1":
+        # Remove duplicates (case-insensitive comparison)
+        unique_tmx_files = []
+        existing_lower = [rule.lower() for rule in existing_rules]
+        
+        for tmx_file in tmx_files:
+            if tmx_file.lower() not in existing_lower:
+                unique_tmx_files.append(tmx_file)
+        
+        print(f"{Colors.BLUE}Found {len(unique_tmx_files)} new rules to add to the existing {len(existing_rules)} rules.{Colors.END}")
+        all_rules = existing_rules + unique_tmx_files
+        tmx_files = unique_tmx_files  # For progress bar, only show new files
+    else:  # choice == "2"
+        all_rules = tmx_files
     
     # Show writing progress
     total = len(tmx_files)
@@ -245,12 +328,18 @@ def write_rules_txt(tmx_files):
         progress_bar(total, i + 1)
         time.sleep(0.01)  # Quick but visible progress
     
-    with open("rules.txt", "w", encoding="utf-8") as rules_file:
-        for tmx_file in tmx_files:
-            rules_file.write(f"{tmx_file}\n")
+    # Write the rules file
+    with open(rules_file_path, "w", encoding="utf-8") as rules_file:
+        for rule in all_rules:
+            rules_file.write(f"{rule}\n")
     
-    print(f"\n\n{Colors.GREEN}✅ Done! 'rules.txt' has been created with {len(tmx_files)} rule files.{Colors.END}")
-    print(f"{Colors.YELLOW}Place this 'rules.txt' file in your main Tiled project folder to enable Automapping.{Colors.END}\n")
+    if choice == "1":
+        print(f"\n\n{Colors.GREEN}✅ Done! 'rules.txt' has been updated with {len(tmx_files)} new rule files.{Colors.END}")
+        print(f"{Colors.GREEN}The file now contains {len(all_rules)} total rules.{Colors.END}")
+    else:  # choice == "2"
+        print(f"\n\n{Colors.GREEN}✅ Done! A new 'rules.txt' has been created with {len(all_rules)} rule files.{Colors.END}")
+
+
 
 
 def main():
@@ -272,11 +361,11 @@ def main():
         print(f"\n{Colors.RED}❌ No .tmx files found in the folders you specified.{Colors.END}")
     else:
         # Confirm before creating rules.txt
-        confirm = input(f"\n{Colors.YELLOW}Ready to create rules.txt with {len(tmx_files)} files. Continue? (Y/n): {Colors.END}").strip().lower()
+        confirm = input(f"\n{Colors.YELLOW}Ready to process {len(tmx_files)} rule files. Continue? (Y/n): {Colors.END}").strip().lower()
         check_for_exit(confirm)
         
         if confirm != 'n':
-            write_rules_txt(tmx_files)
+            write_rules_txt(tmx_files, root_dir)
             
             # Final success message
             print(f"{Colors.BOLD}{Colors.GREEN}You can now use these rules in Tiled's Automapping feature.{Colors.END}")
